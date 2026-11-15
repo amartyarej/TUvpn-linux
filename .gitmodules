@@ -1,0 +1,3 @@
+[submodule "openconnect-pulse-gui"]
+	path = openconnect-pulse-gui
+	url = https://github.com/amartyarej/openconnect-pulse-gui.git

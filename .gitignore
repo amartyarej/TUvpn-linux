@@ -1,0 +1,9 @@
+# Virtual environment (users create their own)
+venv/
+
+# Python artifacts
+__pycache__/
+*.pyc
+
+# Logs
+*.log

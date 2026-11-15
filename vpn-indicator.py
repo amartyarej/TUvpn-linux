@@ -6,6 +6,7 @@ Connect / Disconnect (via vpn-toggle.sh) and a status dialog.
 """
 import gi
 import os
+import shutil
 import subprocess
 
 gi.require_version("AyatanaAppIndicator3", "0.1")
@@ -13,9 +14,33 @@ gi.require_version("Gtk", "3.0")
 from gi.repository import AyatanaAppIndicator3, Gtk, GLib
 
 TOGGLE = os.path.expanduser("~/scripts/vpn/vpn-toggle.sh")
-ICON_ON = os.path.expanduser("~/scripts/vpn/icons/tu-mark-green.png")
-ICON_OFF = os.path.expanduser("~/scripts/vpn/icons/tu-mark-grey.png")
-PGREP = ["pgrep", "-f", "openconnect --protocol pulse"]
+ICON_ON_FILE = os.path.expanduser("~/scripts/vpn/icons/tu-mark-green.png")
+ICON_OFF_FILE = os.path.expanduser("~/scripts/vpn/icons/tu-mark-grey.png")
+
+
+def resolve_icons():
+    # The GNOME appindicator extension caches icon textures by file path and
+    # only renders absolute paths reliably. Copy the icons to per-instance
+    # unique paths so the cache can never hold stale content for them (the
+    # cause of "green while disconnected" or placeholder icons).
+    root = os.path.expanduser("~/.cache/tu-vpn-indicator")
+    cache_dir = os.path.join(root, str(os.getpid()))
+    try:
+        os.makedirs(cache_dir, exist_ok=True)
+        for name in os.listdir(root):        # drop instances of older runs
+            if name != str(os.getpid()):
+                try:
+                    shutil.rmtree(os.path.join(root, name))
+                except OSError:
+                    pass
+        on = os.path.join(cache_dir, "on.png")
+        off = os.path.join(cache_dir, "off.png")
+        shutil.copyfile(ICON_ON_FILE, on)
+        shutil.copyfile(ICON_OFF_FILE, off)
+        return on, off
+    except OSError as e:
+        print("Icon copy failed, using repo files directly: %s" % e, flush=True)
+        return ICON_ON_FILE, ICON_OFF_FILE
 
 
 def vpn_running():
@@ -28,9 +53,6 @@ def vpn_running():
 def tunnel_ip():
     out = subprocess.run(["ip", "-4", "addr", "show", "tun0"],
                          capture_output=True, text=True).stdout
-    for tok in out.split():
-        if tok.startswith("inet "):
-            pass
     for line in out.splitlines():
         if "inet " in line:
             return line.split()[1].split("/")[0]
@@ -40,8 +62,9 @@ def tunnel_ip():
 class VpnIndicator:
     def __init__(self):
         self._last_up = None
+        self.icon_on, self.icon_off = resolve_icons()
         self.ind = AyatanaAppIndicator3.Indicator.new(
-            "tu-vpn", ICON_OFF,
+            "tu-vpn", self.icon_off,
             AyatanaAppIndicator3.IndicatorCategory.APPLICATION_STATUS)
         self.ind.set_status(AyatanaAppIndicator3.IndicatorStatus.ACTIVE)
         self.ind.set_title("TU Dortmund VPN")
@@ -97,7 +120,10 @@ class VpnIndicator:
     def tick(self):
         up = vpn_running()
         if up != self._last_up:                    # update icon only on change
-            self.ind.set_icon_full(ICON_ON if up else ICON_OFF, "TU Dortmund VPN")
+            icon = self.icon_on if up else self.icon_off
+            self.ind.set_icon_full(icon, "TU Dortmund VPN")
+            print(f"VPN state -> {'connected' if up else 'disconnected'} "
+                  f"(icon: {icon})", flush=True)
             self._last_up = up
         if up:
             ip = tunnel_ip() or "…"

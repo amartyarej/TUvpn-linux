@@ -44,7 +44,11 @@ else
     SAVED=1
 fi
 
-printf '%s\n' "$PASSWORD" | sudo -n "$OC" --protocol pulse --useragent "$UA" \
+# Run openconnect in its own systemd scope so it escapes the cgroup of
+# whatever started this script (e.g. the tray indicator) - restarting that
+# unit must not kill the VPN daemon.
+printf '%s\n' "$PASSWORD" | systemd-run --user --scope --quiet \
+    sudo -n "$OC" --protocol pulse --useragent "$UA" \
     -u "$USERNAME" --passwd-on-stdin --background --syslog "$SERVER" \
     2>>"$LOG"
 
